@@ -7,7 +7,7 @@ services:
     ports:
       - "8000:8000"  # oder 8001:8000 wenn nötig
     volumes:
-      - ./data/chromadb:/chroma/chroma
+      - ./data/chromadb:/data
     environment:
       - CHROMA_SERVER_HOST=0.0.0.0
       - CHROMA_SERVER_HTTP_PORT=8000
@@ -24,6 +24,59 @@ services:
       retries: 12
       start_period: 40s
 
+  rag-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Proxy-Konfiguration für Build-Phase (TH Wildau)
+        - http_proxy=http://proxy.th-wildau.de:8080
+        - https_proxy=http://proxy.th-wildau.de:8080
+        - no_proxy=localhost,127.0.0.1,.th-wildau.de
+    container_name: rag-app
+    ports:
+      - "8501:8501"
+    environment:
+      # ChromaDB Connection (internal network)
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - CHROMA_HTTP_URL=http://chromadb:8000
+      
+      # Proxy-Konfiguration für Laufzeit (TH Wildau)
+      - http_proxy=http://proxy.th-wildau.de:8080
+      - https_proxy=http://proxy.th-wildau.de:8080
+      - no_proxy=localhost,127.0.0.1,.th-wildau.de,chromadb
+      
+      # Ollama Config (TH Wildau Server)
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-https://ollama-bim24.apps.rhos.th-wildau.de}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2}
+      - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-granite-embedding:278m}
+      
+      # Collections
+      - DOCUMENTS_COLLECTION=documents-collection
+      - METADATA_COLLECTION=metadata-collection
+      
+      # Processing
+      - CHUNK_SIZE=${CHUNK_SIZE:-1000}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-200}
+    depends_on:
+      chromadb:
+        condition: service_healthy
+    volumes:
+      # Nur für Entwicklung - entfernen für Production
+      - ./src:/app/src
+      - ./data/documents:/app/data/documents
+      - ./data/metadata:/app/data/metadata
+    restart: unless-stopped
+    networks:
+      - rag_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+      
 networks:
   rag_network:
     driver: bridge
