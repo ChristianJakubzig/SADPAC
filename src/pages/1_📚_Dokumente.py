@@ -82,6 +82,18 @@ with tab1:
     
     st.info(f"📌 Uploads werden in **{selected_collection}** gespeichert")
     
+    # Erweiterte Einstellungen
+    with st.expander("⚙️ Upload-Einstellungen"):
+        batch_size = st.slider(
+            "Batch-Größe für Embeddings",
+            min_value=5,
+            max_value=50,
+            value=10,
+            step=5,
+            help="Kleinere Batches = langsamer aber sicherer. Bei Timeouts verringern!"
+        )
+        st.caption(f"💡 Empfohlen für TH Wildau Server: 5-10 Chunks pro Batch")
+    
     uploaded_file = st.file_uploader(
         "Wähle eine Datei",
         type=['pdf', 'txt', 'docx'],
@@ -121,7 +133,6 @@ with tab1:
                 # In ChromaDB speichern mit Batching (wichtig für große Dokumente!)
                 vectorstore = get_vectorstore_for_collection(selected_collection)
                 
-                batch_size = 10  # Anpassbar je nach Server-Performance
                 total_chunks = len(chunks)
                 
                 logger.info(f"Speichere {total_chunks} Chunks in Batches von {batch_size}...")
@@ -180,7 +191,7 @@ with tab2:
         
         col1, col2 = st.columns(2)
         with col1:
-            st.metric("📊 Gesamtzahl Chunks", doc_count)
+            st.metric("📊 Text-Chunks", doc_count)
         with col2:
             st.metric("📦 Collection", selected_collection)
         

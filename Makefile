@@ -65,11 +65,14 @@ run:
 # Tests
 test:
 	@echo "🧪 Führe Tests aus..."
-	python tests/test_chroma_client.py
+	python src/tests/test_chroma_client.py
 
 # Cleanup
 clean:
 	@echo "🧹 Lösche temporäre Dateien..."
-	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
-	find . -type f -name "*.pyc" -delete 2>/dev/null || true
+	@find . -type d -name "__pycache__" -print0 2>/dev/null | xargs -0 rm -rf 2>/dev/null || true
+	@find . -type f -name "*.pyc" -delete 2>/dev/null || true
+	@find . -type d -name ".pytest_cache" -print0 2>/dev/null | xargs -0 rm -rf 2>/dev/null || true
+	@find . -type d -name "*.egg-info" -print0 2>/dev/null | xargs -0 rm -rf 2>/dev/null || true
+	@find . -type f -name ".coverage" -delete 2>/dev/null || true
 	@echo "✅ Cleanup fertig"
