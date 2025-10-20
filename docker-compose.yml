@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  chromadb:
+    image: chromadb/chroma:1.0.16
+    container_name: chromadb
+    ports:
+      - "8000:8000"  # oder 8001:8000 wenn nötig
+    volumes:
+      - ./data/chromadb:/chroma/chroma
+    environment:
+      - CHROMA_SERVER_HOST=0.0.0.0
+      - CHROMA_SERVER_HTTP_PORT=8000
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+      - PERSIST_DIRECTORY=/chroma/chroma
+    restart: unless-stopped
+    networks:
+      - rag_network
+    healthcheck:
+      test: ["CMD", "/bin/sh", "-c", "timeout 5 bash -c '</dev/tcp/localhost/8000'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+networks:
+  rag_network:
+    driver: bridge
