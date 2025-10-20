@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from app.document_processor import DocumentProcessor
 from app.chroma_client import get_chroma_vectorstore
 from app.config import Config
-from langchain_ollama import OllamaEmbeddings  # ← RICHTIG
+from langchain_community.embeddings import OllamaEmbeddings
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,7 +31,7 @@ def main():
     parser.add_argument(
         "--folder",
         type=str,
-        default=str(Config.DATA_DIR),
+        default=str(Config.DATA_DIR),  # Nutzt Config.DATA_DIR als Default
         help=f"Pfad zum Dokumenten-Ordner (default: {Config.DATA_DIR})"
     )
     parser.add_argument(
@@ -41,9 +41,28 @@ def main():
         help="Zu ladende Dateitypen (default: .pdf .txt .docx)"
     )
     parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=1000,
+        help="Größe der Text-Chunks (default: 1000)"
+    )
+    parser.add_argument(
+        "--chunk-overlap",
+        type=int,
+        default=200,
+        help="Überlappung zwischen Chunks (default: 200)"
+    )
+    parser.add_argument(
         "--clear",
         action="store_true",
         help="Löscht existierende Collection vor dem Laden"
+    )
+
+    parser.add_argument(
+        "--collection",
+        type=str,
+        default=None,
+        help=f"Collection-Name (default: {Config.CHROMA_COLLECTION_NAME})"
     )
     
     args = parser.parse_args()
@@ -56,7 +75,7 @@ def main():
     
     logger.info(f"🚀 Starte Dokumenten-Import aus: {folder_path}")
     
-    # 1. Ollama Embedding-Modell (TH Wildau Server)  ← GEÄNDERT
+    # 1. Ollama Embedding-Modell (TH Wildau Server)
     logger.info(f"📦 Verbinde mit Ollama: {Config.OLLAMA_BASE_URL}")
     logger.info(f"📊 Embedding-Model: {Config.OLLAMA_EMBEDDING_MODEL}")
     
@@ -73,10 +92,10 @@ def main():
     if args.clear:
         logger.warning("⚠️  Lösche existierende Dokumente...")
         collection = vectorstore._collection
-        collection.delete(where={})
+        collection.delete(where={})  # Löscht alle Dokumente
         logger.info("🗑️  Collection geleert")
     
-    # 4. Dokumente laden und verarbeiten (nutzt Config-Werte)  ← GEÄNDERT
+    # 4. Dokumente laden und verarbeiten
     processor = DocumentProcessor(
         chunk_size=Config.CHUNK_SIZE,
         chunk_overlap=Config.CHUNK_OVERLAP
@@ -89,9 +108,27 @@ def main():
         logger.warning("⚠️  Keine Dokumente gefunden!")
         sys.exit(0)
     
-    # 5. In ChromaDB speichern
-    logger.info(f"💾 Speichere {len(chunks)} Chunks in ChromaDB...")
-    vectorstore.add_documents(chunks)
+    # 5. In ChromaDB speichern (mit Batching für große Dokumente)
+    batch_size = 10  # Anzahl Chunks pro Batch (anpassbar)
+    total_chunks = len(chunks)
+    logger.info(f"💾 Speichere {total_chunks} Chunks in ChromaDB (Batch-Größe: {batch_size})...")
+    
+    # Verarbeite in Batches
+    for i in range(0, total_chunks, batch_size):
+        batch = chunks[i:i + batch_size]
+        batch_num = (i // batch_size) + 1
+        total_batches = (total_chunks + batch_size - 1) // batch_size
+        
+        logger.info(f"  📦 Batch {batch_num}/{total_batches}: {len(batch)} Chunks...")
+        
+        try:
+            vectorstore.add_documents(batch)
+        except Exception as e:
+            logger.error(f"  ❌ Fehler bei Batch {batch_num}: {e}")
+            logger.warning(f"  ⏭️  Überspringe Batch und fahre fort...")
+            continue
+    
+    logger.info("✅ Alle Batches verarbeitet!")
     
     # 6. Statistiken
     total_docs = vectorstore._collection.count()

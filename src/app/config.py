@@ -26,9 +26,16 @@ class Config:
     # Document Processing
     CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "1000"))
     CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "200"))
-    
-    # Collection Name
-    CHROMA_COLLECTION_NAME: str = os.getenv("CHROMA_COLLECTION_NAME", "granite-embedding")
 
-    #Data Directory 
-    DATA_DIR = Path(__file__).parent.parent /"data" / "raw_data_books"
+    # Data Directories
+    BASE_DATA_DIR: Path = Path(__file__).parent.parent.parent / "data"
+    DOCUMENTS_DIR: Path = BASE_DATA_DIR / "documents"
+    METADATA_DIR: Path = BASE_DATA_DIR / "metadata"
+
+        # Collection Names
+    DOCUMENTS_COLLECTION: str = os.getenv("DOCUMENTS_COLLECTION", "documents-collection")
+    METADATA_COLLECTION: str = os.getenv("METADATA_COLLECTION", "metadata-collection")
+    
+    # Default Collection (für Abwärtskompatibilität)
+    CHROMA_COLLECTION_NAME: str = os.getenv("CHROMA_COLLECTION_NAME", DOCUMENTS_COLLECTION)
+    DATA_DIR: Path = DOCUMENTS_DIR  # Default für load_documents.py

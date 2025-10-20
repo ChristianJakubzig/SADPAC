@@ -38,7 +38,16 @@ docker-logs:
 # Dokumente laden
 load-docs:
 	@echo "📚 Lade Dokumente..."
-	python src/scripts/load_documents.py
+	python src/scripts/load_documents.py --folder data/documents --collection documents-collection
+
+# Metadaten laden
+load-metadata:
+	@echo "📊 Lade Metadaten..."
+	python src/scripts/load_documents.py --folder data/metadata --collection metadata-collection
+
+# Beide laden
+load-all: load-docs load-metadata
+	@echo "✅ Alle Daten geladen!"
 
 load-docs-clear:
 	@echo "🗑️  Lösche DB und lade Dokumente neu..."
