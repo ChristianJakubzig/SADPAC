@@ -5,7 +5,6 @@ from pathlib import Path
 import tempfile
 import sys
 
-# Füge Parent-Directory zum Path hinzu
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.document_processor import DocumentProcessor
@@ -13,7 +12,6 @@ from app.chroma_client import get_chroma_vectorstore
 from app.config import Config
 from langchain_ollama import OllamaEmbeddings
 
-# TODO: der Server antwortet nicht in time 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -23,23 +21,66 @@ st.set_page_config(
     layout="wide"
 )
 
+# Session State
+if "selected_collection" not in st.session_state:
+    st.session_state.selected_collection = Config.DOCUMENTS_COLLECTION
+
 @st.cache_resource
-def get_vectorstore():
-    """Erstellt Vectorstore-Verbindung"""
-    embedding_model = OllamaEmbeddings(
+def get_embedding_model():
+    """Erstellt Ollama Embedding Model"""
+    return OllamaEmbeddings(
         base_url=Config.OLLAMA_BASE_URL,
         model=Config.OLLAMA_EMBEDDING_MODEL
     )
-    return get_chroma_vectorstore(embedding_model)
+
+def get_vectorstore_for_collection(collection_name: str):
+    """Erstellt Vectorstore für spezifische Collection"""
+    embedding_model = get_embedding_model()
+    return get_chroma_vectorstore(embedding_model, collection_name=collection_name)
 
 st.title("📚 Dokumentenverwaltung")
+
+# Sidebar: Collection-Auswahl
+with st.sidebar:
+    st.header("📦 Collection")
+    
+    collections = [Config.DOCUMENTS_COLLECTION, Config.METADATA_COLLECTION]
+    
+    selected_collection = st.selectbox(
+        "Aktive Collection",
+        collections,
+        index=collections.index(st.session_state.selected_collection),
+        help="Wähle zwischen Dokumenten und Metadaten"
+    )
+    
+    if selected_collection != st.session_state.selected_collection:
+        st.session_state.selected_collection = selected_collection
+    
+    st.divider()
+    
+    # Zeige Status beider Collections
+    st.subheader("📊 Status")
+    
+    for coll in collections:
+        try:
+            vs = get_vectorstore_for_collection(coll)
+            count = vs._collection.count()
+            icon = "✅" if count > 0 else "⚪"
+            st.metric(
+                f"{icon} {coll.replace('-collection', '')}",
+                f"{count} Docs"
+            )
+        except Exception as e:
+            st.error(f"❌ {coll}")
 
 # Tabs für verschiedene Aktionen
 tab1, tab2, tab3 = st.tabs(["📤 Upload", "📊 Übersicht", "🗑️ Verwaltung"])
 
 # Tab 1: Upload
 with tab1:
-    st.header("Dokument hochladen")
+    st.header(f"Dokument hochladen → {selected_collection}")
+    
+    st.info(f"📌 Uploads werden in **{selected_collection}** gespeichert")
     
     uploaded_file = st.file_uploader(
         "Wähle eine Datei",
@@ -77,15 +118,41 @@ with tab1:
                 chunks = processor.load_and_process_file(tmp_path)
                 progress_bar.progress(60, "Erstelle Embeddings...")
                 
-                # In ChromaDB speichern
-                vectorstore = get_vectorstore()
-                vectorstore.add_documents(chunks)
+                # In ChromaDB speichern mit Batching (wichtig für große Dokumente!)
+                vectorstore = get_vectorstore_for_collection(selected_collection)
+                
+                batch_size = 10  # Anpassbar je nach Server-Performance
+                total_chunks = len(chunks)
+                
+                logger.info(f"Speichere {total_chunks} Chunks in Batches von {batch_size}...")
+                
+                # Verarbeite in Batches
+                for i in range(0, total_chunks, batch_size):
+                    batch = chunks[i:i + batch_size]
+                    batch_num = (i // batch_size) + 1
+                    total_batches = (total_chunks + batch_size - 1) // batch_size
+                    
+                    # Progress aktualisieren
+                    progress_pct = 60 + int((i / total_chunks) * 40)
+                    progress_bar.progress(
+                        progress_pct, 
+                        f"Speichere Batch {batch_num}/{total_batches}..."
+                    )
+                    
+                    try:
+                        vectorstore.add_documents(batch)
+                    except Exception as batch_error:
+                        st.warning(f"⚠️ Batch {batch_num} fehlgeschlagen: {batch_error}")
+                        logger.error(f"Batch {batch_num} error: {batch_error}")
+                        # Fahre mit nächstem Batch fort
+                        continue
+                
                 progress_bar.progress(100, "Fertig!")
                 
                 # Temporäre Datei löschen
                 tmp_path.unlink()
                 
-                st.success(f"✅ **{uploaded_file.name}** erfolgreich hochgeladen!")
+                st.success(f"✅ **{uploaded_file.name}** erfolgreich in '{selected_collection}' hochgeladen!")
                 st.info(f"📊 {len(chunks)} Text-Chunks erstellt")
                 
                 # Zeige Beispiel-Chunk
@@ -94,41 +161,84 @@ with tab1:
                 
                 st.balloons()
                 
+                # Cache clearen für Refresh
+                st.cache_resource.clear()
+                
             except Exception as e:
                 st.error(f"❌ Fehler beim Upload: {e}")
                 logger.error(f"Upload-Fehler: {e}", exc_info=True)
 
 # Tab 2: Übersicht
 with tab2:
-    st.header("Dokument-Übersicht")
+    st.header(f"Übersicht: {selected_collection}")
     
     try:
-        vectorstore = get_vectorstore()
+        vectorstore = get_vectorstore_for_collection(selected_collection)
         collection = vectorstore._collection
         
         doc_count = collection.count()
         
-        st.metric("📊 Gesamtzahl Chunks", doc_count)
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("📊 Gesamtzahl Chunks", doc_count)
+        with col2:
+            st.metric("📦 Collection", selected_collection)
         
         if doc_count > 0:
-            # Hole Beispiel-Dokumente
-            results = collection.get(limit=10, include=['metadatas'])
+            st.divider()
+            
+            # Hole Sample-Dokumente
+            results = collection.get(limit=50, include=['metadatas'])
             
             if results and results['metadatas']:
                 # Extrahiere eindeutige Dateinamen
-                filenames = set()
+                filenames = {}
                 for metadata in results['metadatas']:
                     if 'filename' in metadata:
-                        filenames.add(metadata['filename'])
+                        fname = metadata['filename']
+                        filenames[fname] = filenames.get(fname, 0) + 1
                 
                 st.subheader(f"📄 Hochgeladene Dokumente ({len(filenames)})")
                 
-                for filename in sorted(filenames):
-                    # Zähle Chunks pro Datei
-                    chunks_count = sum(1 for m in results['metadatas'] if m.get('filename') == filename)
-                    st.write(f"- **{filename}** ({chunks_count}+ Chunks)")
+                # Zeige als Tabelle
+                import pandas as pd
+                df = pd.DataFrame([
+                    {"Dateiname": fname, "Chunks": count}
+                    for fname, count in sorted(filenames.items())
+                ])
+                st.dataframe(df, use_container_width=True, hide_index=True)
+                
+                # Download-Option
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    label="📥 Liste als CSV",
+                    data=csv,
+                    file_name=f"{selected_collection}_dokumente.csv",
+                    mime="text/csv"
+                )
         else:
             st.info("Noch keine Dokumente vorhanden.")
+            
+            with st.expander("💡 Dokumente hinzufügen"):
+                st.markdown("""
+                **Option 1: Via UI**
+                - Nutze den Upload-Tab oben
+                
+                **Option 2: Via Script (für viele Dokumente)**
+                """)
+                
+                if selected_collection == Config.DOCUMENTS_COLLECTION:
+                    folder = "data/documents"
+                else:
+                    folder = "data/metadata"
+                
+                st.code(f"""
+# Dokumente laden:
+python src/scripts/load_documents.py \\
+  --folder {folder} \\
+  --collection {selected_collection} \\
+  --batch-size 5
+                """, language="bash")
             
     except Exception as e:
         st.error(f"Fehler beim Laden der Übersicht: {e}")
@@ -137,49 +247,67 @@ with tab2:
 with tab3:
     st.header("Datenbank-Verwaltung")
     
-    try:
-        vectorstore = get_vectorstore()
-        doc_count = vectorstore._collection.count()
+    col1, col2 = st.columns(2)
+    
+    # Collection-spezifische Verwaltung
+    with col1:
+        st.subheader(f"🗑️ {selected_collection}")
         
-        st.warning("⚠️ **Achtung:** Diese Aktionen sind nicht rückgängig zu machen!")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("🗑️ Datenbank leeren")
+        try:
+            vectorstore = get_vectorstore_for_collection(selected_collection)
+            doc_count = vectorstore._collection.count()
+            
             st.write(f"Aktuell: **{doc_count}** Dokumente")
             
-            if st.button("🗑️ Alle Dokumente löschen", type="secondary"):
+            st.warning("⚠️ Diese Aktion ist nicht rückgängig zu machen!")
+            
+            if st.button(f"🗑️ {selected_collection} leeren", type="secondary"):
                 if doc_count > 0:
                     with st.spinner("Lösche Dokumente..."):
                         vectorstore._collection.delete(where={})
-                    st.success("✅ Datenbank geleert!")
+                    st.success(f"✅ {selected_collection} geleert!")
+                    st.cache_resource.clear()
                     st.rerun()
                 else:
-                    st.info("Datenbank ist bereits leer")
+                    st.info("Collection ist bereits leer")
+        except Exception as e:
+            st.error(f"Fehler: {e}")
+    
+    # Beide Collections verwalten
+    with col2:
+        st.subheader("🗑️ Alle Collections")
         
-        with col2:
-            st.subheader("ℹ️ Konfiguration")
-            st.code(f"""
-Embedding Model: {Config.OLLAMA_EMBEDDING_MODEL}
-Chunk Size: {Config.CHUNK_SIZE}
-Chunk Overlap: {Config.CHUNK_OVERLAP}
-Collection: {Config.CHROMA_COLLECTION_NAME}
-            """, language="text")
-            
-    except Exception as e:
-        st.error(f"Fehler: {e}")
-
-# Sidebar Info
-with st.sidebar:
-    st.header("📊 Status")
-    try:
-        vectorstore = get_vectorstore()
-        doc_count = vectorstore._collection.count()
-        st.metric("Dokumente", doc_count)
-        st.success("✅ Verbunden")
-    except:
-        st.error("❌ Nicht verbunden")
+        st.warning("⚠️⚠️ Löscht ALLE Daten in BEIDEN Collections!")
+        
+        if st.button("🗑️ ALLES löschen", type="secondary", help="Vorsicht!"):
+            try:
+                for coll in collections:
+                    vs = get_vectorstore_for_collection(coll)
+                    vs._collection.delete(where={})
+                st.success("✅ Alle Collections geleert!")
+                st.cache_resource.clear()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Fehler: {e}")
     
     st.divider()
-    st.info("💡 **Tipp:** Nach dem Upload zur Chat-Seite wechseln!")
+    
+    # Konfiguration
+    st.subheader("ℹ️ Konfiguration")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.code(f"""
+📊 Collection Settings:
+- Dokumente: {Config.DOCUMENTS_COLLECTION}
+- Metadaten: {Config.METADATA_COLLECTION}
+        """, language="text")
+    
+    with col2:
+        st.code(f"""
+🔧 Processing Settings:
+- Chunk Size: {Config.CHUNK_SIZE}
+- Chunk Overlap: {Config.CHUNK_OVERLAP}
+- Embedding: {Config.OLLAMA_EMBEDDING_MODEL}
+        """, language="text")

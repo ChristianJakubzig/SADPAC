@@ -17,15 +17,15 @@ def get_chroma_vectorstore(
     
     Args:
         embedding_model: Embedding-Modell (optional)
-        collection_name: Name der Collection (optional, default: Config.CHROMA_COLLECTION_NAME)
+        collection_name: Name der Collection (optional)
     """
     try:
         # Falls kein Embedding-Model übergeben, nutze Ollama
         if embedding_model is None:
             embedding_model = OllamaEmbeddings(
                 base_url=Config.OLLAMA_BASE_URL,
-                model=Config.OLLAMA_EMBEDDING_MODEL,
-                request_timeout=120.0
+                model=Config.OLLAMA_EMBEDDING_MODEL
+                # ENTFERNT: request_timeout=120.0
             )
         
         # Collection-Name bestimmen

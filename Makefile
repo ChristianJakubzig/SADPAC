@@ -38,20 +38,24 @@ docker-logs:
 # Dokumente laden
 load-docs:
 	@echo "📚 Lade Dokumente..."
-	python src/scripts/load_documents.py --folder data/documents --collection documents-collection
+	python src/scripts/load_documents.py --folder data/documents --collection documents-collection --batch-size 5
+
+load-docs-clear:
+	@echo "🗑️  Lösche DB und lade Dokumente neu..."
+	python src/scripts/load_documents.py --folder data/documents --collection documents-collection --batch-size 5 --clear
 
 # Metadaten laden
 load-metadata:
 	@echo "📊 Lade Metadaten..."
-	python src/scripts/load_documents.py --folder data/metadata --collection metadata-collection
+	python src/scripts/load_documents.py --folder data/metadata --collection metadata-collection --batch-size 5
+
+load-metadata-clear:
+	@echo "🗑️  Lösche Metadaten und lade neu..."
+	python src/scripts/load_documents.py --folder data/metadata --collection metadata-collection --batch-size 5 --clear
 
 # Beide laden
 load-all: load-docs load-metadata
 	@echo "✅ Alle Daten geladen!"
-
-load-docs-clear:
-	@echo "🗑️  Lösche DB und lade Dokumente neu..."
-	python src/scripts/load_documents.py --clear
 
 # App starten
 run:
@@ -61,7 +65,7 @@ run:
 # Tests
 test:
 	@echo "🧪 Führe Tests aus..."
-	python src/tests/test_chroma_client.py
+	python tests/test_chroma_client.py
 
 # Cleanup
 clean:
