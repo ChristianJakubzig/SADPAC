@@ -62,14 +62,21 @@ with st.sidebar:
     if selected_collection != st.session_state.selected_collection:
         st.session_state.selected_collection = selected_collection
         st.rerun()
-    
-    try:
-        vectorstore = get_vectorstore_for_collection(selected_collection)
-        doc_count = vectorstore._collection.count()
+
+    @st.cache_data(ttl=60)
+    def get_doc_count(collection_name):
+        try:
+            vs = get_vectorstore_for_collection(collection_name)
+            return vs._collection.count()
+        except Exception as e:
+            return 0
         
+    try:
+        doc_count = get_doc_count(selected_collection)
+
         st.metric("📊 Chunks", doc_count)
         st.success("✅ Verbunden")
-        
+
     except Exception as e:
         st.error(f"❌ Verbindungsfehler: {e}")
         doc_count = 0
@@ -81,7 +88,7 @@ with st.sidebar:
     
     k_results = st.slider(
         "Anzahl Kontext-Quellen", 
-        1, 10, 3,
+        1, 5, 3,
         help="Wie viele relevante Text-Chunks sollen dem LLM als Kontext gegeben werden?"
     )
     

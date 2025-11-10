@@ -59,19 +59,27 @@ with st.sidebar:
     st.divider()
     
     # Zeige Status beider Collections
+    @st.cache_data(ttl=60)
+    def get_all_collection_stats():
+        stats = {}
+        for coll in collections:
+            try:
+                vs = get_vectorstore_for_collection(coll)
+                stats[coll] = vs._collection.count()
+            except Exception as e:
+                stats[coll] = 0
+        return stats
+
     st.subheader("📊 Status")
-    
+
+    stats = get_all_collection_stats()
+
     for coll in collections:
-        try:
-            vs = get_vectorstore_for_collection(coll)
-            count = vs._collection.count()
-            icon = "✅" if count > 0 else "⚪"
-            st.metric(
-                f"{icon} {coll.replace('-collection', '')}",
-                f"{count} Docs"
-            )
-        except Exception as e:
-            st.error(f"❌ {coll}")
+        count = stats.get(coll, 0)
+        icon = "✅" if count > 0 else "⚪"
+        st.metric(
+            f"{icon} {coll.replace('-collection', '')}",
+            f"{count} Docs")
 
 # Tabs für verschiedene Aktionen
 tab1, tab2, tab3 = st.tabs(["📤 Upload", "📊 Übersicht", "🗑️ Verwaltung"])
